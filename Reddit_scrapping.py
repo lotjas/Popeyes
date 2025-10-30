@@ -20,12 +20,12 @@ HEADERS = {
 }
 
 # keywords to mark "topics"/barriers
-TOPIC_KEYWORDS = ["policy", "guidelines", "wind propulsion", "imo", "port", "regulation", "roi", "cost", "subsid"]
+TOPIC_KEYWORDS = ["policy", "guidelines", "wind propulsion","IMO", "port", "regulation", "ROI", "cost", "subsidy"]
 
 # barrier lexicon for quick tagging
 BARRIERS = {
     "economic": ["capex","roi","payback","cost","costs","subsidy","subsidies","grant","funding","finance","price","carbon tax","ets","levy"],
-    "regulatory": ["imo","eu ets","certification","class","regulation","permit","compliance","policy","rule","port authority","standard"],
+    "regulatory": ["IMO","eu ets","certification","class","regulation","permit","compliance","policy","rule","port authority","standard","norm"],
     "operational": ["route","wind","maintenance","crew","training","schedule","retrofit","clearance","berth","draft","weather","operational"]
 }
 
@@ -37,9 +37,9 @@ just more most no nor not now only other our own same should so some such than t
 """.split())
 
 POST_URLS = [
-    "https://www.reddit.com/r/megalophobia/comments/12a3edu/a_terrifying_size_of_windmills/",
-    "https://www.reddit.com/r/megalophobia/comments/15y34nj/first_windpowered_cargo_ship/",
     "https://www.reddit.com/r/Futurology/comments/1bgxqhp/a_cargo_ships_windwing_sails_saved_it_up_to_12/",
+    "https://www.reddit.com/r/Futurology/comments/1f4t1p9/worlds_largest_sailing_cargo_ship_makes_first/",
+    "https://www.reddit.com/r/Futurology/comments/15ig7m6/cutting_ships_pollution_has_climate_downside/",
 ]
 
 # ----------------- helpers -----------------
