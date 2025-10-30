@@ -1,34 +1,28 @@
 import requests
 import time
-from urllib.parse import urlparse, parse_qs
 
 # Your YouTube Data API key
 api_key = "AIzaSyCcF83kGou5ncw4DtwrRqC-vRlejKyVRtA"
 
-# Full YouTube URLs (you can paste them directly)
-urls = [
-    "https://www.youtube.com/watch?v=MdI191-vNlc&t=9s",
-    "https://www.youtube.com/watch?v=L86znpiEzX0&t=20s",
-    "https://www.youtube.com/watch?v=Rt-tmo0uAIo",
-    "https://www.youtube.com/watch?v=KNZlQXBvQCk"
+# List of YouTube video IDs
+video_ids = [
+    "MdI191-vNlc",
+    "L86znpiEzX0",
+    "Rt-tmo0uAIo",
+    "KNZlQXBvQCk"
 ]
 
-# Helper function to extract the video ID from a full YouTube URL
-def extract_video_id(url):
-    query = parse_qs(urlparse(url).query)
-    return query.get("v", [None])[0]
+# Base URL for YouTube commentThreads API
+base_url = "https://www.googleapis.com/youtube/v3/commentThreads"
 
-# Convert URLs to video IDs
-video_ids = [extract_video_id(url) for url in urls]
-
-url = "https://www.googleapis.com/youtube/v3/commentThreads"
-
-def fetch_all_comments(video_id):
-    """Fetch all top-level comments from one YouTube video."""
+def fetch_all_comments(video_id, delay=0.5):
+    """
+    Fetch all top-level comments from a single YouTube video.
+    """
     params = {
         'part': 'snippet',
         'videoId': video_id,
-        'maxResults': 100,
+        'maxResults': 100,  # Maximum allowed per request
         'textFormat': 'plainText',
         'key': api_key,
     }
@@ -38,20 +32,22 @@ def fetch_all_comments(video_id):
 
     while True:
         print(f"Getting page {page} for video {video_id}...")
-        response = requests.get(url, params=params)
+        response = requests.get(base_url, params=params)
 
         if response.status_code == 200:
             data = response.json()
-            comments.extend([
+            new_comments = [
                 item['snippet']['topLevelComment']['snippet']['textDisplay']
                 for item in data.get('items', [])
-            ])
+            ]
+            comments.extend(new_comments)
+            print(f"  -> Retrieved {len(new_comments)} comments (total: {len(comments)})")
 
             # Check for next page
             if 'nextPageToken' in data:
                 params['pageToken'] = data['nextPageToken']
                 page += 1
-                time.sleep(0.5)  # short delay to avoid hitting quota limits
+                time.sleep(delay)  # avoid hitting quota limits
             else:
                 break
         else:
@@ -59,7 +55,6 @@ def fetch_all_comments(video_id):
             break
 
     return comments
-
 
 # Collect comments for all videos
 all_comments = {}
