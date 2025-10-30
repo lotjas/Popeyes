@@ -1,46 +1,74 @@
 import requests
 import time
+from urllib.parse import urlparse, parse_qs
 
-# The API key is your key to the YouTube API. You will neeed to get your own. To do so, visit https://developers.google.com/youtube/v3/getting-started
-# TODO Enter your API key here
+# Your YouTube Data API key
 api_key = "AIzaSyCcF83kGou5ncw4DtwrRqC-vRlejKyVRtA"
-#. Your solution here ...
-video_id = "kRGx-E96whI"
-# Replace with the ID of the video you are interested in. 
-# You can find the ID by going to a video in Youtube, and getting the string after v= in the URL. For instance, i0EfLMe5FGk in https://www.youtube.com/watch?v=i0EfLMe5FGk
 
-url = f"https://www.googleapis.com/youtube/v3/commentThreads"
-params = {
-    'part': 'snippet',
-    'videoId': video_id,
-    'maxResults': 100,  # max number of comments to fetch 
-    'textFormat': 'plainText',
-    'key': api_key,
-}
+# Full YouTube URLs (you can paste them directly)
+urls = [
+    "https://www.youtube.com/watch?v=MdI191-vNlc&t=9s",
+    "https://www.youtube.com/watch?v=L86znpiEzX0&t=20s",
+    "https://www.youtube.com/watch?v=Rt-tmo0uAIo",
+    "https://www.youtube.com/watch?v=KNZlQXBvQCk"
+]
 
-all_comments = []
+# Helper function to extract the video ID from a full YouTube URL
+def extract_video_id(url):
+    query = parse_qs(urlparse(url).query)
+    return query.get("v", [None])[0]
 
-maximum_pages = 3 #How many pages to get at most
+# Convert URLs to video IDs
+video_ids = [extract_video_id(url) for url in urls]
 
-for page in range(maximum_pages):
-    print(f"Getting page {page}...")
-    response = requests.get(url, params=params)
-    if response.status_code == 200:
-        result_json = response.json()
-        all_comments.extend([item['snippet']['topLevelComment']['snippet']['textDisplay'] for item in result_json.get('items', [])])
+url = "https://www.googleapis.com/youtube/v3/commentThreads"
 
-        # Many APIs provide the result page by page. If there is another page, this API returns a nextPageToken, that we can
-        # send to the API to get the next page in line. If there are no more comments, there will be no such token.
-        if 'nextPageToken' in result_json:
-            params['pageToken'] = result_json['nextPageToken']
-            
-            # Ensure you don't hit the quota limits by adding a delay
-            time.sleep(1)
-        else: #No token, so no more pages
+def fetch_all_comments(video_id):
+    """Fetch all top-level comments from one YouTube video."""
+    params = {
+        'part': 'snippet',
+        'videoId': video_id,
+        'maxResults': 100,
+        'textFormat': 'plainText',
+        'key': api_key,
+    }
+
+    comments = []
+    page = 1
+
+    while True:
+        print(f"Getting page {page} for video {video_id}...")
+        response = requests.get(url, params=params)
+
+        if response.status_code == 200:
+            data = response.json()
+            comments.extend([
+                item['snippet']['topLevelComment']['snippet']['textDisplay']
+                for item in data.get('items', [])
+            ])
+
+            # Check for next page
+            if 'nextPageToken' in data:
+                params['pageToken'] = data['nextPageToken']
+                page += 1
+                time.sleep(0.5)  # short delay to avoid hitting quota limits
+            else:
+                break
+        else:
+            print(f"Error {response.status_code} for video {video_id}")
             break
-    else:
-        print("Error: ", response.status_code)
-        break
 
-# Now 'all_comments' list contains all the comments from the video
-print(f"Done. Fetched {len(all_comments)} comments!")
+    return comments
+
+
+# Collect comments for all videos
+all_comments = {}
+
+for vid in video_ids:
+    comments = fetch_all_comments(vid)
+    all_comments[vid] = comments
+    print(f"Collected {len(comments)} comments for video {vid}\n")
+
+# Summary
+total = sum(len(v) for v in all_comments.values())
+print(f"Done! Retrieved a total of {total} comments from {len(video_ids)} videos.")
