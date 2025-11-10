@@ -1,134 +1,155 @@
-import requests
+import csv
+import json
 import time
 import re
+import requests
+from collections import Counter
 from bs4 import BeautifulSoup
-import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
-from collections import Counter
-import pandas as pd
+import nltk
 
+# ---- Setup ----
 nltk.download('punkt')
 nltk.download('stopwords')
 nltk.download('wordnet')
 nltk.download('vader_lexicon')
 
+# ---- API CONFIG ----
 API_KEY = "AIzaSyCcF83kGou5ncw4DtwrRqC-vRlejKyVRtA"
-VIDEO_IDS = ["MdI191-vNlc", "L86znpiEzX0", "Rt-tmo0uAIo", "KNZlQXBvQCk"]
+VIDEO_IDS = [
+    "MdI191-vNlc",
+    "L86znpiEzX0",
+    "Rt-tmo0uAIo",
+    "KNZlQXBvQCk"
+]
 BASE_URL = "https://www.googleapis.com/youtube/v3/commentThreads"
 
+# ---- NLP setup ----
 stop_words = set(stopwords.words('english'))
 lemmatizer = WordNetLemmatizer()
 sia = SentimentIntensityAnalyzer()
 
-def preprocess_text(text):
-    # Remove HTML
+# ---- Keyword + Barrier definitions ----
+TOPIC_KEYWORDS = ["climate", "wind", "ship", "transport", "policy", "subsidy", "cost", "port"]
+BARRIERS = {
+    "economic": ["cost", "price", "roi", "funding", "subsidy", "grant", "finance"],
+    "regulatory": ["policy", "regulation", "imo", "permit", "law", "standard"],
+    "operational": ["maintenance", "crew", "training", "weather", "retrofit", "schedule"]
+}
+
+# ---- Helpers ----
+def clean_text(text: str) -> str:
     text = BeautifulSoup(text, "html.parser").get_text()
-    # Remove URLs, numbers, punctuation
-    text = re.sub(r"http\S+", "", text)
-    text = re.sub(r"\d+", "", text)
-    text = re.sub(r"[^\w\s]", "", text)
-    # Lowercase
-    text = text.lower()
-    # Tokenize
-    tokens = nltk.word_tokenize(text)
-    # Remove stop words & lemmatize
-    tokens = [lemmatizer.lemmatize(t) for t in tokens if t not in stop_words and t.strip()]
-    return tokens
+    text = re.sub(r"http\S+", " ", text)
+    text = re.sub(r"[^A-Za-z0-9' -]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip().lower()
+    return text
 
-def fetch_all_comments(video_id, delay=0.5):
-    """
-    Fetch all top-level comments from a YouTube video using the API.
-    """
-    params = {
-        'part': 'snippet',
-        'videoId': video_id,
-        'maxResults': 100,
-        'textFormat': 'plainText',
-        'key': API_KEY,
-    }
+def keyphrases(text: str, topn: int = 6) -> list[str]:
+    toks = [t for t in re.findall(r"\b[a-z]{3,}\b", text.lower()) if t not in stop_words]
+    if not toks:
+        return []
+    bis = [f"{toks[i]} {toks[i+1]}" for i in range(len(toks)-1)]
+    counts = Counter(toks + bis)
+    return [k for k, _ in counts.most_common(topn)]
 
-    comments = []
-    page = 1
+def extract_topics_from_text(text: str) -> list[str]:
+    t = text.lower()
+    return [kw for kw in TOPIC_KEYWORDS if kw in t]
 
-    while True:
-        print(f"[INFO] Fetching page {page} for video {video_id}...")
-        response = requests.get(BASE_URL, params=params)
+def barrier_tags(text: str) -> list[str]:
+    t = text.lower()
+    tags = []
+    for k, lex in BARRIERS.items():
+        if any(w in t for w in lex):
+            tags.append(k)
+    return tags
 
-        if response.status_code != 200:
-            print(f"[ERROR] {response.status_code} for video {video_id}")
-            break
-
-        data = response.json()
-        new_comments = [
-            item['snippet']['topLevelComment']['snippet']['textDisplay']
-            for item in data.get('items', [])
-        ]
-
-        comments.extend(new_comments)
-        print(f"  → Retrieved {len(new_comments)} comments (total: {len(comments)})")
-
-        if 'nextPageToken' in data:
-            params['pageToken'] = data['nextPageToken']
-            page += 1
-            time.sleep(delay)
-        else:
-            break
-
-    return comments
-
-def classify_sentiment(compound_score):
-    """Classify sentiment based on VADER compound score."""
-    if compound_score >= 0.05:
+def sentiment_label(score: float) -> str:
+    if score >= 0.05:
         return "Positive"
-    elif compound_score <= -0.05:
+    elif score <= -0.05:
         return "Negative"
     else:
         return "Neutral"
 
-if __name__ == "__main__":
-    all_comments = {}
+# ---- Fetch comments ----
+def fetch_youtube_comments(video_id: str, delay=0.5) -> list[dict]:
+    params = {
+        "part": "snippet",
+        "videoId": video_id,
+        "maxResults": 100,
+        "textFormat": "plainText",
+        "key": API_KEY
+    }
 
+    comments = []
+    page = 1
+    while True:
+        print(f"Fetching comments page {page} for {video_id}...")
+        resp = requests.get(BASE_URL, params=params)
+        if resp.status_code != 200:
+            print(f"[ERROR] {resp.status_code} - {resp.text}")
+            break
+        data = resp.json()
+        items = data.get("items", [])
+        for item in items:
+            snippet = item["snippet"]["topLevelComment"]["snippet"]
+            text = snippet.get("textDisplay", "")
+            if not text.strip():
+                continue
+            clean = clean_text(text)
+            sent_score = sia.polarity_scores(clean)["compound"]
+            sent_label = sentiment_label(sent_score)
+            comments.append({
+                "video_id": video_id,
+                "author": snippet.get("authorDisplayName", ""),
+                "like_count": snippet.get("likeCount", 0),
+                "published_at": snippet.get("publishedAt", ""),
+                "text": text,
+                "clean_text": clean,
+                "sentiment_score": sent_score,
+                "sentiment_label": sent_label,
+                "keyphrases": "|".join(keyphrases(clean)),
+                "barriers": "|".join(barrier_tags(clean)),
+                "topics": "|".join(extract_topics_from_text(clean))
+            })
+        if "nextPageToken" not in data:
+            break
+        params["pageToken"] = data["nextPageToken"]
+        page += 1
+        time.sleep(delay)
+    return comments
+
+# ---- Main scrape ----
+def scrape_youtube() -> list[dict]:
+    all_comments = []
     for vid in VIDEO_IDS:
-        comments = fetch_all_comments(vid)
-        all_comments[vid] = comments
-        print(f"[DONE] Collected {len(comments)} comments for video {vid}\n")
+        comms = fetch_youtube_comments(vid)
+        print(f"→ {len(comms)} comments fetched for video {vid}")
+        all_comments.extend(comms)
+        time.sleep(1)
+    print(f"Total comments fetched: {len(all_comments)}")
+    return all_comments
 
-    total_comments = sum(len(v) for v in all_comments.values())
-    print(f"[SUMMARY] Retrieved a total of {total_comments} comments from {len(VIDEO_IDS)} videos.\n")
+# ---- Save results ----
+def save_comments_csv(data, filename="youtube_comments.csv"):
+    if not data:
+        print("No comments to save.")
+        return
+    fields = ["video_id","author","like_count","published_at","text","clean_text","sentiment_score","sentiment_label","keyphrases","barriers","topics"]
+    with open(filename, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        w.writerows(data)
+    print(f"Saved → {filename}")
 
-    all_text = [comment for comments in all_comments.values() for comment in comments]
+# ---- Main ----
+def main():
+    comments = scrape_youtube()
+    save_comments_csv(comments)
 
-    print("[INFO] Preprocessing comments...")
-    cleaned_comments = [preprocess_text(comment) for comment in all_text]
-
-    all_tokens = [token for comment in cleaned_comments for token in comment]
-    word_freq = Counter(all_tokens)
-    print("\nTop 20 most common words:")
-    for word, freq in word_freq.most_common(20):
-        print(f"  {word}: {freq}")
-
-    print("\n[INFO] Performing sentiment analysis...")
-    sentiment_scores = [sia.polarity_scores(" ".join(tokens)) for tokens in cleaned_comments]
-    sentiment_labels = [classify_sentiment(s['compound']) for s in sentiment_scores]
-
-    df_cleaned = pd.DataFrame({
-        'comment': [" ".join(tokens) for tokens in cleaned_comments],
-        'sentiment': sentiment_labels
-    })
-
-    df_readable = pd.DataFrame({
-        'comment': all_text,
-        'sentiment': sentiment_labels
-    })
-
-    df_cleaned.to_csv("youtube_comments_cleaned.csv", index=False)
-    df_readable.to_csv("youtube_comments_readable.csv", index=False)
-
-    print("\nSentiment distribution:")
-    print(df_cleaned['sentiment'].value_counts())
-
-    print("\n[EXPORT COMPLETE]")
-    print("→ youtube_comments_cleaned.csv (processed version)")
-    print("→ youtube_comments_readable.csv (original version)")
+if __name__ == "__main__":
+    main()
